@@ -86,7 +86,7 @@ customer-support-bot/
   README.md
 ```
 
-## Setup: Replit
+## Setup
 
 1. Create a new Repl and import this project (upload the folder, or import it from GitHub).
 2. Open **Secrets** (the padlock icon) and add:
@@ -193,3 +193,8 @@ The three clickable example questions are plain buttons in `frontend/index.html`
 - Rate limiting and basic analytics on the chat endpoint (common questions, unanswered questions)
 - A "was this helpful?" button, and hand-off to a human or an email form for unanswered questions
 - Multi-business support, with a separate document collection for each business
+
+<img width="932" height="862" alt="Screenshot 2026-11-01 144729" src="https://github.com/user-attachments/assets/70be5184-33f0-4948-95df-73416cbe1e2b" />
+<img width="963" height="862" alt="image" src="https://github.com/user-attachments/assets/ce4f2a93-0e4e-4ad4-9abd-e533280ff461" />
+
+
