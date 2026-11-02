@@ -14,8 +14,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Callable, TypeVar
 
-import chromadb
-from chromadb.api.models.Collection import Collection
+import uuid
+
+from qdrant_client import QdrantClient, models
+import Collection
 from docx import Document
 from google import genai
 from google.genai import errors, types
@@ -261,44 +263,88 @@ def embed_texts(texts: list[str], task_type: str) -> list[list[float]]:
 
 
 # --------------------------------------------------------------------------
-# 4. Storage
+
+# --------------------------------------------------------------------------
+# 4. Storage - Qdrant Cloud
 # --------------------------------------------------------------------------
 
 @lru_cache(maxsize=1)
-def get_collection() -> Collection:
-    """Open (or create) the persistent ChromaDB collection using cosine distance."""
-    client = chromadb.PersistentClient(path=str(config.CHROMA_DIR))
-    return client.get_or_create_collection(
-        name=config.COLLECTION_NAME, metadata={"hnsw:space": "cosine"}
+def get_qdrant_client() -> QdrantClient:
+    """Connect to the hosted Qdrant database."""
+    if not config.QDRANT_URL or not config.QDRANT_API_KEY:
+        raise BotError(
+            "The server is missing QDRANT_URL or QDRANT_API_KEY.",
+            status_code=503,
+        )
+
+    return QdrantClient(
+        url=config.QDRANT_URL,
+        api_key=config.QDRANT_API_KEY,
+        timeout=30,
+    )
+
+
+def ensure_collection(vector_size: int) -> None:
+    """Create the Qdrant collection if it does not exist."""
+    client = get_qdrant_client()
+
+    if not client.collection_exists(config.COLLECTION_NAME):
+        client.create_collection(
+            collection_name=config.COLLECTION_NAME,
+            vectors_config=models.VectorParams(
+                size=vector_size,
+                distance=models.Distance.COSINE,
+            ),
+        )
+
+
+def _point_id(filename: str, index: int) -> str:
+    """Generate a stable UUID for each document chunk."""
+    return str(
+        uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"helppilot:{filename}:{index}",
+        )
     )
 
 
 def ingest_document(filename: str, data: bytes) -> int:
-    """Index a file and return the number of chunks stored.
-
-    Re-uploading a file with the same name replaces its old chunks.
-    """
+    """Extract, embed and store a document in Qdrant."""
     name = Path(filename).name
     chunks = chunk_text(extract_text(name, data))
+
     if not chunks:
         raise BotError("No readable text was found in this file.")
 
-    # Embed first, so a failed upload never destroys the existing version.
+    # Generate embeddings before replacing the existing document.
     vectors = embed_texts(chunks, "RETRIEVAL_DOCUMENT")
 
+    ensure_collection(len(vectors[0]))
+    client = get_qdrant_client()
+
+    # Replace any previous version of this document.
     delete_document(name)
-    collection = get_collection()
-    for start in range(0, len(chunks), UPSERT_BATCH_SIZE):
-        end = start + UPSERT_BATCH_SIZE
-        collection.upsert(
-            ids=[f"{name}::{i}" for i in range(start, min(end, len(chunks)))],
-            embeddings=vectors[start:end],
-            documents=chunks[start:end],
-            metadatas=[
-                {"source": name, "chunk_index": i}
-                for i in range(start, min(end, len(chunks)))
-            ],
+
+    points = [
+        models.PointStruct(
+            id=_point_id(name, i),
+            vector=vectors[i],
+            payload={
+                "source": name,
+                "chunk_index": i,
+                "text": chunks[i],
+            },
         )
+        for i in range(len(chunks))
+    ]
+
+    for start in range(0, len(points), UPSERT_BATCH_SIZE):
+        client.upsert(
+            collection_name=config.COLLECTION_NAME,
+            points=points[start:start + UPSERT_BATCH_SIZE],
+            wait=True,
+        )
+
     return len(chunks)
 
 
@@ -307,27 +353,56 @@ def ingest_document(filename: str, data: bytes) -> int:
 # --------------------------------------------------------------------------
 
 def retrieve(question: str) -> list[RetrievedChunk]:
-    """Return the chunks most similar to the question, best first."""
-    collection = get_collection()
-    total = collection.count()
+    """Return the most relevant document chunks."""
+    client = get_qdrant_client()
+
+    if not client.collection_exists(config.COLLECTION_NAME):
+        return []
+
+    total = client.count(
+        collection_name=config.COLLECTION_NAME,
+        exact=True,
+    ).count
+
     if total == 0:
         return []
 
-    query_vector = embed_texts([question], "RETRIEVAL_QUERY")[0]
-    result = collection.query(
-        query_embeddings=[query_vector],
-        n_results=min(config.TOP_K, total),
-        include=["documents", "metadatas", "distances"],
+    query_vector = embed_texts(
+        [question],
+        "RETRIEVAL_QUERY",
+    )[0]
+
+    result = client.query_points(
+        collection_name=config.COLLECTION_NAME,
+        query=query_vector,
+        limit=min(config.TOP_K, total),
+        with_payload=True,
     )
 
     chunks: list[RetrievedChunk] = []
-    for text, metadata, distance in zip(
-        result["documents"][0], result["metadatas"][0], result["distances"][0]
-    ):
-        similarity = 1.0 - distance  # cosine distance -> cosine similarity
-        logger.info("Chunk from %s scored %.3f", metadata["source"], similarity)
-        if similarity >= config.MIN_SIMILARITY:
-            chunks.append(RetrievedChunk(text, str(metadata["source"]), round(similarity, 4)))
+
+    for point in result.points:
+        payload = point.payload or {}
+        similarity = float(point.score or 0.0)
+
+        source = str(payload.get("source", "Unknown"))
+        text = str(payload.get("text", ""))
+
+        logger.info(
+            "Chunk from %s scored %.3f",
+            source,
+            similarity,
+        )
+
+        if text and similarity >= config.MIN_SIMILARITY:
+            chunks.append(
+                RetrievedChunk(
+                    text=text,
+                    source=source,
+                    score=round(similarity, 4),
+                )
+            )
+
     return chunks
 
 
@@ -336,16 +411,74 @@ def retrieve(question: str) -> list[RetrievedChunk]:
 # --------------------------------------------------------------------------
 
 def list_documents() -> list[dict[str, str | int]]:
-    """Return every indexed document with its chunk count, sorted by name."""
-    metadatas = get_collection().get(include=["metadatas"])["metadatas"] or []
-    counts = Counter(str(m["source"]) for m in metadatas)
-    return [{"filename": name, "chunks": counts[name]} for name in sorted(counts)]
+    """Return indexed documents and their chunk counts."""
+    client = get_qdrant_client()
+
+    if not client.collection_exists(config.COLLECTION_NAME):
+        return []
+
+    counts: Counter[str] = Counter()
+    offset = None
+
+    while True:
+        points, offset = client.scroll(
+            collection_name=config.COLLECTION_NAME,
+            limit=500,
+            offset=offset,
+            with_payload=["source"],
+            with_vectors=False,
+        )
+
+        for point in points:
+            payload = point.payload or {}
+            source = payload.get("source")
+
+            if source:
+                counts[str(source)] += 1
+
+        if offset is None:
+            break
+
+    return [
+        {"filename": name, "chunks": count}
+        for name, count in sorted(counts.items())
+    ]
 
 
 def delete_document(filename: str) -> int:
-    """Remove all chunks of a document. Returns how many chunks were deleted."""
-    collection = get_collection()
-    ids = collection.get(where={"source": filename})["ids"]
-    if ids:
-        collection.delete(ids=ids)
-    return len(ids)
+    """Delete all chunks belonging to a document."""
+    client = get_qdrant_client()
+
+    if not client.collection_exists(config.COLLECTION_NAME):
+        return 0
+
+    result = client.count(
+        collection_name=config.COLLECTION_NAME,
+        count_filter=models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="source",
+                    match=models.MatchValue(value=filename),
+                )
+            ]
+        ),
+        exact=True,
+    )
+
+    if result.count:
+        client.delete(
+            collection_name=config.COLLECTION_NAME,
+            points_selector=models.FilterSelector(
+                filter=models.Filter(
+                    must=[
+                        models.FieldCondition(
+                            key="source",
+                            match=models.MatchValue(value=filename),
+                        )
+                    ]
+                )
+            ),
+            wait=True,
+        )
+
+    return result.count

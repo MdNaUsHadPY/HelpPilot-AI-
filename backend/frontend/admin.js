@@ -1,5 +1,8 @@
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = "";
+
 "use strict";
+
+// Admin page: upload documents, list them, delete them.
 
 // Admin page: upload documents, list them, delete them. All text is inserted
 // with textContent, never innerHTML, so file names cannot inject HTML (no XSS).
