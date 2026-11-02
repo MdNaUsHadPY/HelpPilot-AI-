@@ -12,7 +12,11 @@ from dotenv import load_dotenv
 # --- Project layout (anchored to this file, so it works from any directory) ---
 BACKEND_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = BACKEND_DIR.parent
-FRONTEND_DIR = PROJECT_DIR / "frontend"
+
+# Use the bundled frontend on Vercel, or the original folder locally
+FRONTEND_DIR = BACKEND_DIR / "frontend"
+if not FRONTEND_DIR.is_dir():
+    FRONTEND_DIR = PROJECT_DIR / "frontend"
 CHROMA_DIR = PROJECT_DIR / "chroma_db"
 
 # Load a local .env if one exists. On Replit the Secrets are already
