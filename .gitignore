@@ -1,0 +1,18 @@
+# Secrets (the .env.example template is kept on purpose)
+.env
+.env.*
+!.env.example
+
+# Local vector database
+chroma_db/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Replit local state (the .replit run file is kept so the Run button works)
+.cache/
+.upm/
+.pythonlibs/

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manage Documents</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="admin-app">
+    <header class="admin-header">
+      <div>
+        <h1>Manage Documents</h1>
+        <p>Upload your FAQs, policies and guides. The support assistant answers using only these documents.</p>
+      </div>
+      <a class="back-link" href="/">&larr; Back to chat</a>
+    </header>
+
+    <section id="login-card" class="card" hidden>
+      <h2>Admin password required</h2>
+      <form id="login-form" class="inline-form">
+        <input id="password-input" type="password" autocomplete="current-password"
+               placeholder="Enter admin password" aria-label="Admin password" required>
+        <button type="submit" class="btn btn-primary">Unlock</button>
+      </form>
+      <p id="login-error" class="status error" role="alert" hidden></p>
+    </section>
+
+    <div id="admin-content" hidden>
+      <section class="card">
+        <h2>Upload documents</h2>
+        <div id="dropzone" class="dropzone" tabindex="0" role="button"
+             aria-label="Choose files to upload, or drag and drop them here">
+          <p class="dropzone-title">Drag and drop files here</p>
+          <p class="dropzone-hint">or click to choose files &middot; PDF, TXT or DOCX &middot; up to 10 MB each</p>
+        </div>
+        <input id="file-input" type="file" multiple accept=".pdf,.txt,.docx" hidden>
+
+        <div id="progress" class="progress" hidden>
+          <div id="progress-bar" class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+          <p id="progress-label" class="progress-label"></p>
+        </div>
+        <ul id="results" class="results" aria-live="polite"></ul>
+      </section>
+
+      <section class="card">
+        <h2>Indexed documents</h2>
+        <div class="table-wrap">
+          <table id="doc-table" hidden>
+            <thead>
+              <tr>
+                <th>Document</th>
+                <th class="number">Chunks</th>
+                <th><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody id="doc-body"></tbody>
+          </table>
+        </div>
+        <p id="empty-state" class="empty-state" hidden>No documents yet. Upload one above to get started.</p>
+        <p id="docs-error" class="status error" role="alert" hidden></p>
+      </section>
+    </div>
+  </main>
+
+  <script src="/admin.js"></script>
+</body>
+</html>
