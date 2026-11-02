@@ -92,10 +92,16 @@ def _friendly_api_error(exc: errors.APIError) -> BotError:
             status_code=503,
         )
     if code in RETRYABLE_CODES:
-        return BotError(
-            "The AI service is temporarily unavailable. Please try again shortly.",
-            status_code=503,
-        )
+    logger.error(
+        "Gemini final API failure: code=%s, message=%s",
+        code,
+        exc.message,
+    )
+    return BotError(
+        "The AI service is temporarily unavailable. "
+        "Please try again shortly.",
+        status_code=503,
+    )
     logger.error("Unexpected Gemini API error %s: %s", code, exc.message)
     return BotError("The AI service returned an error. Please try again.", 502)
 
@@ -268,20 +274,26 @@ def embed_texts(texts: list[str], task_type: str) -> list[list[float]]:
 # 4. Storage - Qdrant Cloud
 # --------------------------------------------------------------------------
 
+
 @lru_cache(maxsize=1)
-def get_qdrant_client() -> QdrantClient:
-    """Connect to the hosted Qdrant database."""
-    if not config.QDRANT_URL or not config.QDRANT_API_KEY:
+def get_client() -> genai.Client:
+    """Create the shared Gemini client with controlled retries and timeout."""
+    if not config.GEMINI_API_KEY:
         raise BotError(
-            "The server is missing QDRANT_URL or QDRANT_API_KEY.",
+            "The server is missing its GEMINI_API_KEY.",
             status_code=503,
         )
 
-    return QdrantClient(
-        url=config.QDRANT_URL,
-        api_key=config.QDRANT_API_KEY,
-        timeout=30,
+    return genai.Client(
+        api_key=config.GEMINI_API_KEY,
+        http_options=types.HttpOptions(
+            timeout=45000,
+            retry_options=types.HttpRetryOptions(
+                attempts=1,
+            ),
+        ),
     )
+
 
 
 

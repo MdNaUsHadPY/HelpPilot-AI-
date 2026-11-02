@@ -47,7 +47,7 @@ TOP_K: int = 4
 MIN_SIMILARITY: float = 0.35
 MAX_HISTORY_TURNS: int = 4
 EMBED_BATCH_SIZE: int = 50
-MAX_RETRIES: int = 3
+MAX_RETRIES: int = 2
 COLLECTION_NAME: str = "support_docs"
 
 # Input limits
