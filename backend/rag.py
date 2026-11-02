@@ -17,7 +17,7 @@ from typing import Callable, TypeVar
 import uuid
 
 from qdrant_client import QdrantClient, models
-import Collection
+
 from docx import Document
 from google import genai
 from google.genai import errors, types
