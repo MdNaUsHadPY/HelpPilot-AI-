@@ -284,8 +284,9 @@ def get_qdrant_client() -> QdrantClient:
     )
 
 
+
 def ensure_collection(vector_size: int) -> None:
-    """Create the Qdrant collection if it does not exist."""
+    """Create the Qdrant collection and required payload index."""
     client = get_qdrant_client()
 
     if not client.collection_exists(config.COLLECTION_NAME):
@@ -296,6 +297,14 @@ def ensure_collection(vector_size: int) -> None:
                 distance=models.Distance.COSINE,
             ),
         )
+
+    # Create keyword index for filtering documents by filename.
+    client.create_payload_index(
+        collection_name=config.COLLECTION_NAME,
+        field_name="source",
+        field_schema=models.PayloadSchemaType.KEYWORD,
+        wait=True,
+    )
 
 
 def _point_id(filename: str, index: int) -> str:
